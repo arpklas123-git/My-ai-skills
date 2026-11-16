@@ -1,0 +1,92 @@
+{
+  "title": "코드리뷰가 PR에 도착하기까지",
+  "subtitle": "My-ai-skills · code-review 실제 코드 기반 / 생성·검증·게시와 예외 경로",
+  "scope": "논리적 책임과 파일/API 호출 관계를 그린 예제입니다. 별도 서버·배포 인프라를 의미하지 않습니다. AI가 결함을 판단하며 게시 스크립트는 결과 검증·렌더링·COMMENT 게시만 수행합니다. 시퀀스의 성공·미리보기·중단 section은 서로 다른 실행의 대안입니다.",
+  "evidence": [
+    {"label": "My-ai-skills · code-review/SKILL.md · 리뷰 범위·심각도·게시 권한", "url": "https://github.com/arpklas123-git/My-ai-skills/blob/1d926646e9efbdca2486bcfae9105c978c10e0dd/skills/code-review/SKILL.md"},
+    {"label": "publish-review.mjs · normalizeReview / planReview / publishPlan / main", "url": "https://github.com/arpklas123-git/My-ai-skills/blob/1d926646e9efbdca2486bcfae9105c978c10e0dd/skills/code-review/scripts/publish-review.mjs"},
+    {"label": "tests/code-review.test.mjs · head 변경 차단·중복 방지·COMMENT 전용", "url": "https://github.com/arpklas123-git/My-ai-skills/blob/1d926646e9efbdca2486bcfae9105c978c10e0dd/tests/code-review.test.mjs"},
+    {"label": "기준: 개인 저장소 main의 PR #4 반영 시점(1d92664). 여기서 GitHub API는 실제 호출하지 않습니다."}
+  ],
+  "architecture": {
+    "layers": [
+      {"title": "01 / 입력과 근거", "nodes": [
+        {"id": "request", "title": "사용자 요청", "detail": "리뷰 대상과 범위를 정합니다. 게시 요청이 있어야 COMMENT 게시를 수행합니다."},
+        {"id": "source", "title": "PR diff · 호출부", "detail": "변경 코드, 호출부, 테스트, base/head SHA와 저장소 지침을 읽습니다."},
+        {"id": "policy", "title": "실제 CI 리뷰 기준", "detail": "CI 일치를 요청하면 caller·참조 버전·실행 SHA의 프롬프트와 판정 기준을 확인합니다."}
+      ]},
+      {"title": "02 / 결함 판단", "nodes": [
+        {"id": "agent", "title": "AI 리뷰 에이전트", "detail": "코드 경로와 재현 조건을 확인해 critical/major/minor를 분류합니다. 자동 게시 도우미가 리뷰 자체를 대신하지 않습니다."}
+      ]},
+      {"title": "03 / 로컬 검토 산출물", "nodes": [
+        {"id": "json", "title": "review.json", "detail": "summary / verdict / findings / good. 각 지적에는 severity·path·line·title·body가 있습니다."},
+        {"id": "notes", "title": "검증 메모", "detail": "기준 커밋, 확인한 CI, 직접 실행한 검사, 미실행 범위와 운영 한계를 담습니다."}
+      ]},
+      {"title": "04 / 검증과 렌더링", "nodes": [
+        {"id": "publisher", "title": "publish-review.mjs", "detail": "normalizeReview로 등급과 문서 제한을 검증합니다. PR files의 patch에서 RIGHT 줄을 계산하고 planReview로 요약·인라인 payload를 만듭니다. head 확인과 중복 확인 뒤에만 게시합니다."}
+      ]},
+      {"title": "05 / 출력 모드", "nodes": [
+        {"id": "preview", "title": "미리보기 stdout", "detail": "기본 모드. payload와 인라인/요약 전용 위치를 JSON으로 출력합니다. GitHub 읽기는 수행할 수 있지만 쓰기 요청은 보내지 않습니다."},
+        {"id": "gh", "title": "인증된 gh CLI", "detail": "--post를 지정했을 때 현재 head·계정·기존 리뷰를 조회하고 하나의 COMMENT 리뷰를 POST합니다. 승인·머지 API는 사용하지 않습니다."}
+      ]},
+      {"title": "06 / 외부 경계", "nodes": [
+        {"id": "github", "title": "GitHub REST API", "detail": "pulls/files로 줄 위치, pulls로 최신 SHA, user로 계정, pulls/reviews로 중복을 확인합니다. 리뷰 body에는 전체 요약, comments에는 유효한 diff 줄의 인라인 지적을 담습니다."}
+      ]}
+    ],
+    "edges": [
+      {"from": "request", "to": "agent", "label": "범위·게시 권한"},
+      {"from": "source", "to": "agent", "label": "실제 코드 근거"},
+      {"from": "policy", "to": "agent", "label": "판정 기준"},
+      {"from": "agent", "to": "json", "label": "구조화 지적"},
+      {"from": "agent", "to": "notes", "label": "검증 한계"},
+      {"from": "json", "to": "publisher", "label": "--input"},
+      {"from": "notes", "to": "publisher", "label": "--notes-file"},
+      {"from": "publisher", "to": "preview", "label": "기본: 쓰기 없음"},
+      {"from": "publisher", "to": "gh", "label": "게시 요청 + --post"},
+      {"from": "gh", "to": "github", "label": "검증 GET → COMMENT"}
+    ]
+  },
+  "sequence": {
+    "participants": [
+      {"id": "user", "title": "사용자", "detail": "리뷰와 게시를 요청하는 사람"},
+      {"id": "agent", "title": "AI 에이전트", "detail": "코드 검토·판정·결과 작성"},
+      {"id": "repo", "title": "저장소·CI", "detail": "읽기 전용 리뷰 근거"},
+      {"id": "files", "title": "로컬 결과 파일", "detail": "review.json과 검증 메모"},
+      {"id": "script", "title": "게시 스크립트", "detail": "publish-review.mjs"},
+      {"id": "gh", "title": "gh CLI", "detail": "현재 로그인으로 GitHub API 호출"},
+      {"id": "api", "title": "GitHub API", "detail": "PR metadata/files/reviews 엔드포인트"}
+    ],
+    "events": [
+      {"section": "공통 / 코드를 읽고 지적을 검증한다"},
+      {"from": "user", "to": "agent", "label": "PR 리뷰하고 코멘트 달아줘", "detail": "리뷰 대상과 게시 권한이 명시됩니다."},
+      {"from": "agent", "to": "repo", "label": "diff·호출부·CI 기준 조회"},
+      {"from": "repo", "to": "agent", "label": "코드와 실제 검사 결과", "kind": "return"},
+      {"from": "agent", "to": "agent", "label": "재현 경로·등급 판단", "detail": "같은 원인은 합치고 근거 없는 차단 지적은 만들지 않습니다."},
+      {"from": "agent", "to": "files", "label": "JSON + 검증 메모 저장"},
+      {"section": "공통 / 게시 계획을 만들고 기본 미리보기를 확인한다"},
+      {"from": "agent", "to": "script", "label": "head·PR·input으로 실행"},
+      {"from": "script", "to": "files", "label": "review.json 읽기"},
+      {"from": "files", "to": "script", "label": "지적과 검증 범위", "kind": "return"},
+      {"from": "script", "to": "script", "label": "normalizeReview", "detail": "문서 major를 minor로 낮추고 verdict를 등급에서 다시 계산합니다. 잘못된 경로·줄·레벨은 거절합니다."},
+      {"from": "script", "to": "gh", "label": "PR files 조회"},
+      {"from": "gh", "to": "api", "label": "GET pulls/235/files", "detail": "번호는 설명용 예시입니다. 실제 CLI는 사용자가 지정한 저장소와 PR을 사용합니다."},
+      {"from": "api", "to": "script", "label": "files·patch 반환 (gh 경유)", "kind": "return", "detail": "응답은 gh subprocess의 stdout을 JSON으로 파싱해 스크립트로 전달합니다."},
+      {"from": "script", "to": "script", "label": "RIGHT 줄·요약·인라인 구성", "detail": "diff 밖의 줄이나 patch가 없는 파일의 지적은 삭제하지 않고 요약에 남깁니다."},
+      {"note": "대안 A: --post가 없으면 계획만 stdout으로 반환하고 종료합니다. 아래 성공 게시 경로는 별도 --post 실행입니다."},
+      {"from": "script", "to": "agent", "label": "미리보기 JSON 반환", "kind": "return"},
+      {"section": "대안 B / --post 실행: 최신 head + 새 결과 → 게시 성공"},
+      {"from": "agent", "to": "script", "label": "검토한 계획으로 --post 실행"},
+      {"from": "script", "to": "gh", "label": "현재 계정·PR head 조회"},
+      {"from": "gh", "to": "api", "label": "GET user + pulls/235"},
+      {"from": "api", "to": "script", "label": "계정과 동일한 SHA (gh 경유)", "kind": "return"},
+      {"from": "script", "to": "gh", "label": "기존 완료 리뷰 조회"},
+      {"from": "gh", "to": "api", "label": "GET pulls/235/reviews"},
+      {"from": "api", "to": "script", "label": "같은 결과 마커 없음", "kind": "return", "detail": "실제 응답은 gh를 통해 전달됩니다."},
+      {"from": "script", "to": "gh", "label": "COMMENT payload 전달"},
+      {"from": "gh", "to": "api", "label": "POST reviews", "detail": "commit_id=head, event=COMMENT. body에 요약과 전체 지적, comments에 유효한 줄별 코멘트를 담습니다."},
+      {"from": "api", "to": "agent", "label": "게시 URL (gh·스크립트 경유)", "kind": "return"},
+      {"section": "대안 C / 게시 전 차단 또는 중복 감지"},
+      {"note": "head가 다르면 POST 없이 중단하고 새 커밋을 재검토합니다. 같은 계정·커밋·마커의 완료 리뷰가 있으면 기존 URL을 반환하고 POST하지 않습니다. 네트워크 오류는 무조건 재시도하지 않습니다."}
+    ]
+  }
+}
